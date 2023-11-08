@@ -1,0 +1,5 @@
+FROM scratch
+
+COPY ./bin/ipv4-topology /ipv4-topology
+ENTRYPOINT ["/ipv4-topology"]
+
