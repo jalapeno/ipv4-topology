@@ -55,6 +55,14 @@ func (a *arangoDB) processEPEPrefix(ctx context.Context, key string, e *message.
 		glog.V(5).Infof("running filtered query: %s", e.Key)
 		return a.processInternalPrefix(ctx, key, e)
 	}
+	if len(e.BaseAttributes.ASPath) != 1 {
+		glog.V(5).Infof("bgp midpoint, not a true edge: %s", e.Key)
+		return nil
+	}
+	// if e.PeerASN == uint32(e.OriginAS) {
+	// 	glog.V(5).Infof("ebgp propagation of internal prefix back to internal peer, not a true edge: %s", e.Key)
+	// 	return nil
+	// }
 	query := "FOR d IN " + a.peer.Name() +
 		" filter d.remote_ip == " + "\"" + e.PeerIP + "\"" +
 		" FOR l in ls_link " +
@@ -105,7 +113,6 @@ func (a *arangoDB) processEPEPrefix(ctx context.Context, key string, e *message.
 func (a *arangoDB) processEdgeByPeer(ctx context.Context, key string, e *message.PeerStateChange) error {
 	if e.LocalASN == e.RemoteASN {
 		//return a.processIBGP(ctx, key, e)
-		glog.V(5).Infof("local as: %s, remote as: %s", e.LocalASN, e.RemoteASN)
 		return nil
 	}
 	query := "FOR d IN unicast_prefix_v4" + //a.unicastprefixv4.Name() +

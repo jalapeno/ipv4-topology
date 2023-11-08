@@ -13,9 +13,11 @@ import (
 
 var (
 	topics = map[string]dbclient.CollectionType{
-		kafkanotifier.LSLinkEventTopic:   bmp.LSLinkMsg,
-		kafkanotifier.LSNodeEventTopic:   bmp.LSNodeMsg,
-		kafkanotifier.LSPrefixEventTopic: bmp.LSPrefixMsg,
+		kafkanotifier.LSLinkEventTopic:          bmp.LSLinkMsg,
+		kafkanotifier.LSNodeEventTopic:          bmp.LSNodeMsg,
+		kafkanotifier.LSPrefixEventTopic:        bmp.LSPrefixMsg,
+		kafkanotifier.PeerEventTopic:            bmp.PeerStateChangeMsg,
+		kafkanotifier.UnicastPrefixV4EventTopic: bmp.UnicastPrefixV4Msg,
 	}
 )
 

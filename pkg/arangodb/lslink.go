@@ -68,12 +68,13 @@ func (a *arangoDB) processLSLinkEdge(ctx context.Context, key string, l *message
 		return nil
 	}
 	if l.ProtocolID == 7 {
-		if err := a.processEPE(ctx, key, l); err != nil {
-			return err
-		}
-		glog.Infof("processing EPE entry")
+		// if err := a.processEPE(ctx, key, l); err != nil {
+		// 	return err
+		// }
+		// glog.Infof("processing EPE entry")
 
-		return nil
+		// return nil
+		return a.processEPE(ctx, key, l)
 
 	}
 	glog.Infof("processEdge processing lslink: %s", l.ID)

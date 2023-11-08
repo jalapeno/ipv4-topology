@@ -190,7 +190,7 @@ func (a *arangoDB) StoreMessage(msgType dbclient.CollectionType, msg []byte) err
 func (a *arangoDB) loadEdge() error {
 	ctx := context.TODO()
 
-	copy_ls_topo := "for l in " + a.lstopoV4.Name() + " insert l in " + a.ipv4topo.Name() + ""
+	copy_ls_topo := "for l in ls_topology_v4 insert l in ipv4_topology" //+ a.lstopoV4.Name() + " insert l in " + a.ipv4topo.Name() + ""
 	cursor, err := a.db.Query(ctx, copy_ls_topo, nil)
 	if err != nil {
 		return err
