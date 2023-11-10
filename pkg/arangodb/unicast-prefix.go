@@ -34,12 +34,12 @@ func (a *arangoDB) unicastprefixHandler(obj *kafkanotifier.EventMessage) error {
 	switch obj.Action {
 	case "update":
 		glog.V(5).Infof("Send update msg to processEPEPrefix function")
-		if err := a.processEPEPrefix(ctx, obj.Key, &o); err != nil {
+		if err := a.processUnicastPrefix(ctx, obj.Key, &o); err != nil {
 			return fmt.Errorf("failed to process action %s for edge %s with error: %+v", obj.Action, obj.Key, err)
 		}
 	case "add":
 		glog.V(5).Infof("Send add msg to processEPEPrefix function")
-		if err := a.processEPEPrefix(ctx, obj.Key, &o); err != nil {
+		if err := a.processUnicastPrefix(ctx, obj.Key, &o); err != nil {
 			return fmt.Errorf("failed to process action %s for edge %s with error: %+v", obj.Action, obj.Key, err)
 		}
 	default:
@@ -50,25 +50,11 @@ func (a *arangoDB) unicastprefixHandler(obj *kafkanotifier.EventMessage) error {
 }
 
 // processEdge processes a single ls_link connection which is a unidirectional edge between two ls_nodes (vertices).
-func (a *arangoDB) processEPEPrefix(ctx context.Context, key string, e *message.UnicastPrefix) error {
-	if e.BaseAttributes.ASPath == nil {
-		glog.V(5).Infof("running filtered query: %s", e.Key)
-		return a.processInternalPrefix(ctx, key, e)
-	}
-	if len(e.BaseAttributes.ASPath) != 1 {
-		glog.V(5).Infof("bgp midpoint, not a true edge: %s", e.Key)
-		return nil
-	}
-	// if e.PeerASN == uint32(e.OriginAS) {
-	// 	glog.V(5).Infof("ebgp propagation of internal prefix back to internal peer, not a true edge: %s", e.Key)
-	// 	return nil
-	// }
+func (a *arangoDB) processUnicastPrefix(ctx context.Context, key string, e *message.UnicastPrefix) error {
 	query := "FOR d IN " + a.peer.Name() +
-		" filter d.remote_ip == " + "\"" + e.PeerIP + "\"" +
-		" FOR l in ls_link " +
-		" filter d.remote_ip == l.remote_link_ip "
+		" filter d.remote_ip == " + "\"" + e.PeerIP + "\""
 	query += " return d"
-	glog.V(5).Infof("running filtered query: %s", query)
+	glog.Infof("query: %+v", query)
 	ncursor, err := a.db.Query(ctx, query, nil)
 	if err != nil {
 		return err
@@ -110,60 +96,6 @@ func (a *arangoDB) processEPEPrefix(ctx context.Context, key string, e *message.
 	return nil
 }
 
-func (a *arangoDB) processEdgeByPeer(ctx context.Context, key string, e *message.PeerStateChange) error {
-	if e.LocalASN == e.RemoteASN {
-		//return a.processIBGP(ctx, key, e)
-		return nil
-	}
-	query := "FOR d IN unicast_prefix_v4" + //a.unicastprefixv4.Name() +
-		" FOR l in ls_link " +
-		" filter d.peer_ip == l.remote_link_ip " +
-		" filter d.peer_ip == " + "\"" + e.RemoteIP + "\""
-	query += " return d	"
-	glog.V(5).Infof("running query: %s", query)
-	pcursor, err := a.db.Query(ctx, query, nil)
-	if err != nil {
-		return err
-	}
-	defer pcursor.Close()
-	for {
-		var pm message.UnicastPrefix
-		mp, err := pcursor.ReadDocument(ctx, &pm)
-		if err != nil {
-			if !driver.IsNoMoreDocuments(err) {
-				return err
-			}
-			break
-		}
-
-		glog.V(6).Infof("peer %s + unicastprefix %s", e.Key, pm.Key)
-		ne := unicastPrefixEdgeObject{
-			Key:       mp.ID.Key(),
-			From:      e.ID,
-			To:        mp.ID.String(),
-			Prefix:    pm.Prefix,
-			PrefixLen: pm.PrefixLen,
-			LocalIP:   pm.RouterIP,
-			PeerIP:    pm.PeerIP,
-			BaseAttrs: pm.BaseAttributes,
-			PeerASN:   pm.PeerASN,
-			OriginAS:  pm.OriginAS,
-		}
-
-		if _, err := a.graph.CreateDocument(ctx, &ne); err != nil {
-			if !driver.IsConflict(err) {
-				return err
-			}
-			// The document already exists, updating it with the latest info
-			if _, err := a.graph.UpdateDocument(ctx, ne.Key, &ne); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
 // processPrefixRemoval removes records from Edge collection which are referring to deleted UnicastPrefix
 func (a *arangoDB) processUnicastPrefixRemoval(ctx context.Context, id string) error {
 	query := "FOR d IN " + a.graph.Name() +
@@ -195,7 +127,7 @@ func (a *arangoDB) processUnicastPrefixRemoval(ctx context.Context, id string) e
 }
 
 // processPeerRemoval removes records from Edge collection which are referring to deleted eBGP Peer
-func (a *arangoDB) processPeerRemoval(ctx context.Context, id string) error {
+func (a *arangoDB) processRemoval(ctx context.Context, id string) error {
 	query := "FOR d IN " + a.graph.Name() +
 		" filter d._from == " + "\"" + id + "\""
 	query += " return d"

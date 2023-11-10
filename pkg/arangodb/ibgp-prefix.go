@@ -11,7 +11,7 @@ import (
 // processEdge processes a unicast prefix connection which is a unidirectional edge between an eBGP peer and LSNode
 func (a *arangoDB) processIBGP(ctx context.Context, key string, e *LSNodeExt) error {
 	query := "for l in unicast_prefix_v4" +
-		" filter l.peer_ip == " + "\"" + e.RouterID + "\"" + " filter l.origin_as == Null "
+		" filter l.peer_ip == " + "\"" + e.RouterID + "\"" + " filter l.origin_as == Null filter l.prefix_len != 32 "
 	query += " return l	"
 	glog.V(5).Infof("running query: %s", query)
 	pcursor, err := a.db.Query(ctx, query, nil)

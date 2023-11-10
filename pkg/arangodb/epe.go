@@ -19,11 +19,13 @@ func (a *arangoDB) processEPE(ctx context.Context, key string, e *message.LSLink
 	if strings.Contains(e.Key, ":") {
 		return nil
 	}
-	query := "FOR d IN " + a.lsnodeExt.Name() +
+	// find matching ls_node_extended entry to get EPE node. Note if an existing ls_node to peer entry exists it will be overwritten by EPE
+	query := "for d in " + a.lsnodeExt.Name() +
 		" filter d.router_id == " + "\"" + e.BGPRouterID + "\"" +
 		" filter d.domain_id == " + strconv.Itoa(int(e.DomainID))
 	query += " return d"
-	glog.Infof("query lsnode for router id matching lslink bgp_router_id: %+v, local_link_ip: %+v", e.BGPRouterID, e.LocalLinkIP)
+	glog.Infof("query lsnode for router id matching lslink igp_id: %+v bgp_router_id: %+v, local_link_ip: %+v", e.IGPRouterID, e.BGPRouterID, e.LocalLinkIP)
+	glog.Infof("query: %+v", query)
 	lcursor, err := a.db.Query(ctx, query, nil)
 	if err != nil {
 		return err
@@ -39,7 +41,7 @@ func (a *arangoDB) processEPE(ctx context.Context, key string, e *message.LSLink
 	}
 	glog.Infof("ls_node: %+v to correlate with EPE ls_link: %+v", ln.Key, e.Key)
 
-	query = "FOR d IN peer" + //a.peer.Name() +
+	query = "for d in peer" +
 		" filter d.remote_bgp_id == " + "\"" + e.BGPRemoteRouterID + "\"" +
 		" filter d.remote_ip == " + "\"" + e.RemoteLinkIP + "\""
 	query += " return d"
@@ -56,11 +58,12 @@ func (a *arangoDB) processEPE(ctx context.Context, key string, e *message.LSLink
 			return err
 		}
 	}
-	glog.V(5).Infof("From lsnode: %+v", ln.Key)
-	glog.V(5).Infof("To peer: %+v", rn.Key)
+	glog.Infof("From lsnode: %+v, aka %+v", ln.Key, ln.RouterID)
+	glog.Infof("To peer: %+v aka: %+v", rn.Key, rm.ID.Key())
 
 	ne := epeEdgeObject{
-		Key:             key,
+		Key: key,
+		//Key:             ln.RouterID + "_" + rm.ID.Key(), //key,
 		From:            lm.ID.String(),
 		To:              rm.ID.String(),
 		ProtocolID:      e.ProtocolID,

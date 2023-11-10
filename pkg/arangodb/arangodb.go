@@ -172,14 +172,14 @@ func (a *arangoDB) StoreMessage(msgType dbclient.CollectionType, msg []byte) err
 	case bmp.LSLinkMsg:
 		return a.lsLinkHandler(event)
 	}
-	switch msgType {
-	case bmp.LSPrefixMsg:
-		return a.lsprefixHandler(event)
-	}
-	switch msgType {
-	case bmp.PeerStateChangeMsg:
-		return a.peerHandler(event)
-	}
+	// switch msgType {
+	// case bmp.LSPrefixMsg:
+	// 	return a.lsprefixHandler(event)
+	// }
+	// switch msgType {
+	// case bmp.PeerStateChangeMsg:
+	// 	return a.peerHandler(event)
+	// }
 	switch msgType {
 	case bmp.UnicastPrefixV4Msg:
 		return a.unicastprefixHandler(event)
@@ -190,14 +190,36 @@ func (a *arangoDB) StoreMessage(msgType dbclient.CollectionType, msg []byte) err
 func (a *arangoDB) loadEdge() error {
 	ctx := context.TODO()
 
-	copy_ls_topo := "for l in ls_topology_v4 insert l in ipv4_topology" //+ a.lstopoV4.Name() + " insert l in " + a.ipv4topo.Name() + ""
+	copy_ls_topo := "for l in ls_topology_v4 insert l in ipv4_topology options { overwrite: " + "\"update\"" + " } "
 	cursor, err := a.db.Query(ctx, copy_ls_topo, nil)
 	if err != nil {
 		return err
 	}
 	defer cursor.Close()
 
-	epe_query := "FOR d IN " + a.lslink.Name() + " filter d.protocol_id == 7 RETURN d"
+	ebgp_query := "for l in " + a.lsnodeExt.Name() + " return l"
+	cursor, err = a.db.Query(ctx, ebgp_query, nil)
+	if err != nil {
+		return err
+	}
+	defer cursor.Close()
+	for {
+		var p LSNodeExt
+		meta, err := cursor.ReadDocument(ctx, &p)
+		if driver.IsNoMoreDocuments(err) {
+			break
+		} else if err != nil {
+			return err
+		}
+		glog.Infof("processing eBGP peers for ls_node: %s", p.Key)
+		if err := a.processEBGPPeer(ctx, meta.Key, &p); err != nil {
+			glog.Errorf("failed to process key: %s with error: %+v", meta.Key, err)
+			continue
+		}
+	}
+
+	glog.Infof(" begin epe processing")
+	epe_query := "for l in ls_link filter l.protocol_id == 7 filter l._key !like " + "\"%:%\"" + " return l"
 	cursor, err = a.db.Query(ctx, epe_query, nil)
 	if err != nil {
 		return err
@@ -211,32 +233,33 @@ func (a *arangoDB) loadEdge() error {
 		} else if err != nil {
 			return err
 		}
-		glog.V(5).Infof("get ipv4 epe_link: %s", p.Key)
+		glog.Infof("get ipv4 epe_link: %s", p.Key)
 		if err := a.processEPE(ctx, meta.Key, &p); err != nil {
 			glog.Errorf("failed to process key: %s with error: %+v", meta.Key, err)
 			continue
 		}
 	}
-	epe_prefix_query := "for d in " + a.peer.Name() + " RETURN d"
-	cursor, err = a.db.Query(ctx, epe_prefix_query, nil)
-	if err != nil {
-		return err
-	}
-	defer cursor.Close()
-	for {
-		var p message.PeerStateChange
-		meta, err := cursor.ReadDocument(ctx, &p)
-		if driver.IsNoMoreDocuments(err) {
-			break
-		} else if err != nil {
-			return err
-		}
-		glog.V(5).Infof("get ipv4 eBGP peer: %s", p.Key)
-		if err := a.processEdgeByPeer(ctx, meta.Key, &p); err != nil {
-			glog.Errorf("failed to process key: %s with error: %+v", meta.Key, err)
-			continue
-		}
-	}
+
+	// epe_prefix_query := "for d in " + a.peer.Name() + " return d"
+	// cursor, err = a.db.Query(ctx, epe_prefix_query, nil)
+	// if err != nil {
+	// 	return err
+	// }
+	// defer cursor.Close()
+	// for {
+	// 	var p message.PeerStateChange
+	// 	meta, err := cursor.ReadDocument(ctx, &p)
+	// 	if driver.IsNoMoreDocuments(err) {
+	// 		break
+	// 	} else if err != nil {
+	// 		return err
+	// 	}
+	// 	glog.V(5).Infof("get ipv4 eBGP peer: %s", p.Key)
+	// 	if err := a.processUnicastPrefix(ctx, meta.Key, &p); err != nil {
+	// 		glog.Errorf("failed to process key: %s with error: %+v", meta.Key, err)
+	// 		continue
+	// 	}
+	// }
 
 	ibgp_prefix_query := "for l in " + a.lsnodeExt.Name() + " return l"
 	cursor, err = a.db.Query(ctx, ibgp_prefix_query, nil)
@@ -252,12 +275,55 @@ func (a *arangoDB) loadEdge() error {
 		} else if err != nil {
 			return err
 		}
-		glog.V(5).Infof("get ipv4 iBGP prefixes attach to lsnode: %s", p.Key)
+		glog.Infof("get ipv4 iBGP prefixes attach to lsnode: %s", p.Key)
 		if err := a.processIBGP(ctx, meta.Key, &p); err != nil {
 			glog.Errorf("failed to process key: %s with error: %+v", meta.Key, err)
 			continue
 		}
 	}
+
+	ebgp_prefix_query := "for l in unicast_prefix_v4  " +
+		"filter l.prefix_len < 25 filter l.base_attrs.local_pref == null return l"
+	cursor, err = a.db.Query(ctx, ebgp_prefix_query, nil)
+	if err != nil {
+		return err
+	}
+	defer cursor.Close()
+	for {
+		var p message.UnicastPrefix
+		meta, err := cursor.ReadDocument(ctx, &p)
+		if driver.IsNoMoreDocuments(err) {
+			break
+		} else if err != nil {
+			return err
+		}
+		glog.Infof("get ipv4 eBGP prefixes: %s", p.Key)
+		if err := a.processUnicastPrefix(ctx, meta.Key, &p); err != nil {
+			glog.Errorf("failed to process key: %s with error: %+v", meta.Key, err)
+			continue
+		}
+	}
+
+	// peer2peer_query := "for l in " + a.peer.Name() + " return l"
+	// cursor, err = a.db.Query(ctx, peer2peer_query, nil)
+	// if err != nil {
+	// 	return err
+	// }
+	// defer cursor.Close()
+	// for {
+	// 	var p message.PeerStateChange
+	// 	meta, err := cursor.ReadDocument(ctx, &p)
+	// 	if driver.IsNoMoreDocuments(err) {
+	// 		break
+	// 	} else if err != nil {
+	// 		return err
+	// 	}
+	// 	glog.V(5).Infof("connect eBGP peers in graph: %s", p.Key)
+	// 	if err := a.processPeer(ctx, meta.Key, &p); err != nil {
+	// 		glog.Errorf("failed to process key: %s with error: %+v", meta.Key, err)
+	// 		continue
+	// 	}
+	// }
 
 	return nil
 }
