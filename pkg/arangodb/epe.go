@@ -39,13 +39,13 @@ func (a *arangoDB) processEPE(ctx context.Context, key string, e *message.LSLink
 			return err
 		}
 	}
-	glog.Infof("ls_node: %+v to correlate with EPE ls_link: %+v", ln.Key, e.Key)
+	//glog.Infof("ls_node: %+v to correlate with EPE ls_link: %+v", ln.Key, e.Key)
 
 	query = "for d in peer" +
 		" filter d.remote_bgp_id == " + "\"" + e.BGPRemoteRouterID + "\"" +
 		" filter d.remote_ip == " + "\"" + e.RemoteLinkIP + "\""
 	query += " return d"
-	glog.Infof("query peer collection for router id matching lslink bgp_remote_router_id: %+v and remotelinkIP: %+v", e.BGPRemoteRouterID, e.RemoteLinkIP)
+	//glog.Infof("query peer collection for router id matching lslink bgp_remote_router_id: %+v and remotelinkIP: %+v", e.BGPRemoteRouterID, e.RemoteLinkIP)
 	rcursor, err := a.db.Query(ctx, query, nil)
 	if err != nil {
 		return err
@@ -58,8 +58,8 @@ func (a *arangoDB) processEPE(ctx context.Context, key string, e *message.LSLink
 			return err
 		}
 	}
-	glog.Infof("From lsnode: %+v, aka %+v", ln.Key, ln.RouterID)
-	glog.Infof("To peer: %+v aka: %+v", rn.Key, rm.ID.Key())
+	//glog.Infof("From lsnode: %+v, aka %+v", ln.Key, ln.RouterID)
+	//glog.Infof("To peer: %+v aka: %+v", rn.Key, rm.ID.Key())
 
 	ne := epeEdgeObject{
 		Key: key,

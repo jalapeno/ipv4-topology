@@ -15,8 +15,6 @@ func (a *arangoDB) peerHandler(obj *kafkanotifier.EventMessage) error {
 	if obj == nil {
 		return fmt.Errorf("event message is nil")
 	}
-	// todo: unicast prefix edge removal not working properly (january 20, 2022)
-
 	glog.V(5).Infof("Processing action: %s for key: %s ID: %s", obj.Action, obj.Key, obj.ID)
 	var o message.PeerStateChange
 	_, err := a.peer.ReadDocument(ctx, obj.Key, &o)
@@ -33,19 +31,17 @@ func (a *arangoDB) peerHandler(obj *kafkanotifier.EventMessage) error {
 	}
 	switch obj.Action {
 	case "update":
-		glog.V(5).Infof("Send update msg to processEPEPrefix function")
+		//glog.V(5).Infof("Send update msg to processEPEPrefix function")
 		if err := a.processPeer(ctx, obj.Key, &o); err != nil {
 			return fmt.Errorf("failed to process action %s for edge %s with error: %+v", obj.Action, obj.Key, err)
 		}
 	case "add":
-		glog.V(5).Infof("Send add msg to processEPEPrefix function")
+		//glog.V(5).Infof("Send add msg to processEPEPrefix function")
 		if err := a.processPeer(ctx, obj.Key, &o); err != nil {
 			return fmt.Errorf("failed to process action %s for edge %s with error: %+v", obj.Action, obj.Key, err)
 		}
 	default:
-		// NOOP
 	}
-
 	return nil
 }
 
@@ -56,7 +52,7 @@ func (a *arangoDB) processEBGPPeer(ctx context.Context, key string, e *LSNodeExt
 		" filter l.local_asn != l.remote_asn " +
 		" filter l.local_bgp_id == " + "\"" + e.RouterID + "\""
 	query += " return l	"
-	glog.Infof("running query: %s", query)
+	//glog.Infof("running query: %s", query)
 	pcursor, err := a.db.Query(ctx, query, nil)
 	if err != nil {
 		return err
@@ -74,8 +70,7 @@ func (a *arangoDB) processEBGPPeer(ctx context.Context, key string, e *LSNodeExt
 			}
 			break
 		}
-
-		glog.Infof("ls node ext %s + to eBGP peer %s", p.Key, e.Key)
+		//glog.Infof("ls node ext %s + to eBGP peer %s", p.Key, e.Key)
 		ne := peerEdgeObject{
 			Key:         e.RouterID + "_" + peer.ID.Key(),
 			From:        e.ID,
@@ -87,7 +82,6 @@ func (a *arangoDB) processEBGPPeer(ctx context.Context, key string, e *LSNodeExt
 			RemoteASN:   p.RemoteASN,
 			Name:        e.Name,
 		}
-
 		if _, err := a.graph.CreateDocument(ctx, &ne); err != nil {
 			if !driver.IsConflict(err) {
 				return err
@@ -98,11 +92,10 @@ func (a *arangoDB) processEBGPPeer(ctx context.Context, key string, e *LSNodeExt
 			}
 		}
 	}
-
 	return nil
 }
 
-// processEdge processes a unicast prefix connection which is a unidirectional edge between an eBGP peer and LSNode
+//processEdge processes a unicast prefix connection which is a unidirectional edge between an eBGP peer and LSNode
 func (a *arangoDB) processPeer(ctx context.Context, key string, e *message.PeerStateChange) error {
 	query := "for l in peer " +
 		" filter l.local_ip !like " + "\"%:%\"" +

@@ -85,8 +85,8 @@ func (a *arangoDB) processLSLinkEdge(ctx context.Context, key string, l *message
 		glog.Errorf("processEdge failed to get remote lsnode %s for link: %s with error: %+v", l.RemoteIGPRouterID, l.ID, err)
 		return err
 	}
-	glog.V(6).Infof("Local node -> Protocol: %+v Domain ID: %+v IGP Router ID: %+v", ln.ProtocolID, ln.DomainID, ln.IGPRouterID)
-	glog.V(6).Infof("Remote node -> Protocol: %+v Domain ID: %+v IGP Router ID: %+v", rn.ProtocolID, rn.DomainID, rn.IGPRouterID)
+	//glog.V(6).Infof("Local node -> Protocol: %+v Domain ID: %+v IGP Router ID: %+v", ln.ProtocolID, ln.DomainID, ln.IGPRouterID)
+	//glog.V(6).Infof("Remote node -> Protocol: %+v Domain ID: %+v IGP Router ID: %+v", rn.ProtocolID, rn.DomainID, rn.IGPRouterID)
 	if err := a.createEdgeObject(ctx, l, ln, rn); err != nil {
 		glog.Errorf("processEdge failed to create Edge object with error: %+v", err)
 		glog.Errorf("Local node -> Protocol: %+v Domain ID: %+v IGP Router ID: %+v", ln.ProtocolID, ln.DomainID, ln.IGPRouterID)

@@ -15,8 +15,6 @@ func (a *arangoDB) unicastprefixHandler(obj *kafkanotifier.EventMessage) error {
 	if obj == nil {
 		return fmt.Errorf("event message is nil")
 	}
-	// todo: unicast prefix edge removal not working properly (january 20, 2022)
-
 	glog.V(5).Infof("Processing action: %s for key: %s ID: %s", obj.Action, obj.Key, obj.ID)
 	var o message.UnicastPrefix
 	_, err := a.unicastprefix.ReadDocument(ctx, obj.Key, &o)
@@ -43,46 +41,118 @@ func (a *arangoDB) unicastprefixHandler(obj *kafkanotifier.EventMessage) error {
 			return fmt.Errorf("failed to process action %s for edge %s with error: %+v", obj.Action, obj.Key, err)
 		}
 	default:
-		// NOOP
+	}
+	return nil
+}
+
+// processEdge processes a single ls_link connection which is a unidirectional edge between two nodes (vertices).
+func (a *arangoDB) processUnicastPrefix(ctx context.Context, key string, l *message.UnicastPrefix) error {
+	// if base.ProtoID(l.BaseAttributes.LocalPref) == nil {
+	// 	return nil
+	// }
+	glog.Infof("processEdge processing unicast prefix: %s", l.ID)
+	ln, err := a.getInetPfx(ctx, l, true)
+	if err != nil {
+		glog.Errorf("processEdge failed to get inet prefix %s for unicast prefix: %s with error: %+v", l.Prefix, l.ID, err)
+		return err
+	}
+	rn, err := a.getPeer(ctx, l, false)
+	if err != nil {
+		glog.Errorf("processEdge failed to get eBGP Peer %s for unicast prefix: %s with error: %+v", l.Nexthop, l.ID, err)
+		return err
+	}
+	//glog.V(6).Infof("Local node -> Protocol: %+v Domain ID: %+v IGP Router ID: %+v", ln.ProtocolID, ln.DomainID, ln.IGPRouterID)
+	//glog.V(6).Infof("Remote node -> Protocol: %+v Domain ID: %+v IGP Router ID: %+v", rn.ProtocolID, rn.DomainID, rn.IGPRouterID)
+	if err := a.createInetObject(ctx, l, ln, rn); err != nil {
+		glog.Errorf("processEdge failed to create Edge object with error: %+v", err)
+		return err
+	}
+	return nil
+}
+
+// processEdgeRemoval removes a record from Node's graph collection
+// since the key matches in both collections (LS Links and Nodes' Graph) deleting the record directly.
+func (a *arangoDB) processUnicastPrefixRemoval(ctx context.Context, key string) error {
+	if _, err := a.graph.RemoveDocument(ctx, key); err != nil {
+		if !driver.IsNotFound(err) {
+			return err
+		}
+		return nil
 	}
 
 	return nil
 }
 
-// processEdge processes a single ls_link connection which is a unidirectional edge between two ls_nodes (vertices).
-func (a *arangoDB) processUnicastPrefix(ctx context.Context, key string, e *message.UnicastPrefix) error {
-	query := "FOR d IN " + a.peer.Name() +
-		" filter d.remote_ip == " + "\"" + e.PeerIP + "\""
+func (a *arangoDB) getInetPfx(ctx context.Context, e *message.UnicastPrefix, local bool) (*inetPrefix, error) {
+	// Need to find ls_node object matching ls_link's IGP Router ID
+	query := "FOR d IN inet_prefix_v4 filter d.prefix == " + "\"" + e.Prefix + "\""
 	query += " return d"
 	glog.Infof("query: %+v", query)
-	ncursor, err := a.db.Query(ctx, query, nil)
+	lcursor, err := a.db.Query(ctx, query, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer ncursor.Close()
-	var nm message.PeerStateChange
-	mn, err := ncursor.ReadDocument(ctx, &nm)
-	if err != nil {
-		if !driver.IsNoMoreDocuments(err) {
-			return err
+	defer lcursor.Close()
+	var ln inetPrefix
+	i := 0
+	for ; ; i++ {
+		_, err := lcursor.ReadDocument(ctx, &ln)
+		if err != nil {
+			if !driver.IsNoMoreDocuments(err) {
+				return nil, err
+			}
+			break
 		}
 	}
-
-	glog.V(5).Infof("peer %s + prefix %s", nm.Key, e.Key)
-
-	ne := unicastPrefixEdgeObject{
-		Key:       key,
-		From:      mn.ID.String(),
-		To:        e.ID,
-		Prefix:    e.Prefix,
-		PrefixLen: e.PrefixLen,
-		LocalIP:   e.RouterIP,
-		PeerIP:    e.PeerIP,
-		BaseAttrs: e.BaseAttributes,
-		PeerASN:   e.PeerASN,
-		OriginAS:  e.OriginAS,
+	if i == 0 {
+		return nil, fmt.Errorf("query %s returned 0 results", query)
+	}
+	if i > 1 {
+		return nil, fmt.Errorf("query %s returned more than 1 result", query)
 	}
 
+	return &ln, nil
+}
+
+func (a *arangoDB) getPeer(ctx context.Context, e *message.UnicastPrefix, local bool) (*message.PeerStateChange, error) {
+	// Need to find peer object matching unicast prefix's nexthop
+	query := "FOR d IN peer filter d.remote_ip == " + "\"" + e.Nexthop + "\""
+	query += " return d"
+	//glog.Infof("query: %s", query)
+	lcursor, err := a.db.Query(ctx, query, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer lcursor.Close()
+	var rn message.PeerStateChange
+	i := 0
+	for ; ; i++ {
+		_, err := lcursor.ReadDocument(ctx, &rn)
+		if err != nil {
+			if !driver.IsNoMoreDocuments(err) {
+				return nil, err
+			}
+			break
+		}
+	}
+	if i == 0 {
+		return nil, fmt.Errorf("query %s returned 0 results", query)
+	}
+	if i > 1 {
+		return nil, fmt.Errorf("query %s returned more than 1 result", query)
+	}
+
+	return &rn, nil
+}
+
+func (a *arangoDB) createInetObject(ctx context.Context, l *message.UnicastPrefix, ln *inetPrefix, rn *message.PeerStateChange) error {
+
+	ne := inetPrefixEdgeObject{
+		Key:      l.Key,
+		From:     ln.ID,
+		To:       rn.ID,
+		OriginAS: l.OriginAS,
+	}
 	if _, err := a.graph.CreateDocument(ctx, &ne); err != nil {
 		if !driver.IsConflict(err) {
 			return err
@@ -90,66 +160,6 @@ func (a *arangoDB) processUnicastPrefix(ctx context.Context, key string, e *mess
 		// The document already exists, updating it with the latest info
 		if _, err := a.graph.UpdateDocument(ctx, ne.Key, &ne); err != nil {
 			return err
-		}
-	}
-
-	return nil
-}
-
-// processPrefixRemoval removes records from Edge collection which are referring to deleted UnicastPrefix
-func (a *arangoDB) processUnicastPrefixRemoval(ctx context.Context, id string) error {
-	query := "FOR d IN " + a.graph.Name() +
-		" filter d._to == " + "\"" + id + "\""
-	query += " return d"
-	glog.V(6).Infof("query to remove prefix edge: %s", query)
-	ncursor, err := a.db.Query(ctx, query, nil)
-	if err != nil {
-		return err
-	}
-	defer ncursor.Close()
-	for {
-		var nm unicastPrefixEdgeObject
-		m, err := ncursor.ReadDocument(ctx, &nm)
-		if err != nil {
-			if !driver.IsNoMoreDocuments(err) {
-				return err
-			}
-			break
-		}
-		if _, err := a.graph.RemoveDocument(ctx, m.ID.Key()); err != nil {
-			if !driver.IsNotFound(err) {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
-// processPeerRemoval removes records from Edge collection which are referring to deleted eBGP Peer
-func (a *arangoDB) processRemoval(ctx context.Context, id string) error {
-	query := "FOR d IN " + a.graph.Name() +
-		" filter d._from == " + "\"" + id + "\""
-	query += " return d"
-	ncursor, err := a.db.Query(ctx, query, nil)
-	if err != nil {
-		return err
-	}
-	defer ncursor.Close()
-
-	for {
-		var nm unicastPrefixEdgeObject
-		m, err := ncursor.ReadDocument(ctx, &nm)
-		if err != nil {
-			if !driver.IsNoMoreDocuments(err) {
-				return err
-			}
-			break
-		}
-		if _, err := a.graph.RemoveDocument(ctx, m.ID.Key()); err != nil {
-			if !driver.IsNotFound(err) {
-				return err
-			}
 		}
 	}
 

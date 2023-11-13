@@ -4,7 +4,6 @@ import (
 	"context"
 
 	driver "github.com/arangodb/go-driver"
-	"github.com/golang/glog"
 	"github.com/sbezverk/gobmp/pkg/message"
 )
 
@@ -13,7 +12,7 @@ func (a *arangoDB) processIBGP(ctx context.Context, key string, e *LSNodeExt) er
 	query := "for l in unicast_prefix_v4" +
 		" filter l.peer_ip == " + "\"" + e.RouterID + "\"" + " filter l.origin_as == Null filter l.prefix_len != 32 "
 	query += " return l	"
-	glog.V(5).Infof("running query: %s", query)
+	//glog.V(5).Infof("running query: %s", query)
 	pcursor, err := a.db.Query(ctx, query, nil)
 	if err != nil {
 		return err
@@ -32,7 +31,7 @@ func (a *arangoDB) processIBGP(ctx context.Context, key string, e *LSNodeExt) er
 			break
 		}
 
-		glog.V(5).Infof("ls node %s + unicastprefix %s", e.Key, up.Key)
+		//glog.V(5).Infof("ls node %s + unicastprefix %s", e.Key, up.Key)
 		ne := unicastPrefixEdgeObject{
 			Key:       mp.ID.Key(),
 			From:      e.ID,
@@ -67,10 +66,8 @@ func (a *arangoDB) processIBGP(ctx context.Context, key string, e *LSNodeExt) er
 func (a *arangoDB) processInternalPrefix(ctx context.Context, key string, e *message.UnicastPrefix) error {
 	query := "FOR d IN " + a.lsnodeExt.Name() +
 		" filter d.router_id == " + "\"" + e.PeerIP + "\"" //+
-	//" FOR l in ls_link " +
-	//" filter d.remote_ip == l.remote_link_ip "
 	query += " return d"
-	glog.V(5).Infof("running filtered query: %s", query)
+	//glog.V(5).Infof("running filtered query: %s", query)
 	ncursor, err := a.db.Query(ctx, query, nil)
 	if err != nil {
 		return err
@@ -83,9 +80,6 @@ func (a *arangoDB) processInternalPrefix(ctx context.Context, key string, e *mes
 			return err
 		}
 	}
-
-	glog.V(5).Infof("peer %s + prefix %s", nm.Key, e.Key)
-
 	ne := unicastPrefixEdgeObject{
 		Key:       key,
 		From:      mn.ID.String(),

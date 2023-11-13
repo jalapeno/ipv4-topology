@@ -112,23 +112,6 @@ type epeEdgeObject struct {
 	PeerSetSID      *sr.PeerSID           `json:"peer_set_sid"`
 }
 
-type unicastPrefixEdgeObject struct {
-	Key        string              `json:"_key"`
-	From       string              `json:"_from"`
-	To         string              `json:"_to"`
-	Prefix     string              `json:"prefix"`
-	PrefixLen  int32               `json:"prefix_len"`
-	LocalIP    string              `json:"router_ip"`
-	PeerIP     string              `json:"peer_ip"`
-	BaseAttrs  *bgp.BaseAttributes `json:"base_attrs"`
-	PeerASN    uint32              `json:"peer_asn"`
-	OriginAS   int32               `json:"origin_as"`
-	ProtocolID base.ProtoID        `json:"protocol_id"`
-	Nexthop    string              `json:"nexthop"`
-	Labels     []uint32            `json:"labels"`
-	Name       string              `json:"name"`
-}
-
 type peerEdgeObject struct {
 	Key         string              `json:"_key"`
 	From        string              `json:"_from"`
@@ -145,4 +128,48 @@ type peerEdgeObject struct {
 	Nexthop     string              `json:"nexthop"`
 	Labels      []uint32            `json:"labels"`
 	Name        string              `json:"name"`
+}
+
+type unicastPrefixEdgeObject struct {
+	Key        string              `json:"_key"`
+	From       string              `json:"_from"`
+	To         string              `json:"_to"`
+	Prefix     string              `json:"prefix"`
+	PrefixLen  int32               `json:"prefix_len"`
+	LocalIP    string              `json:"router_ip"`
+	PeerIP     string              `json:"peer_ip"`
+	BaseAttrs  *bgp.BaseAttributes `json:"base_attrs"`
+	PeerASN    uint32              `json:"peer_asn"`
+	OriginAS   int32               `json:"origin_as"`
+	ProtocolID base.ProtoID        `json:"protocol_id"`
+	Nexthop    string              `json:"nexthop"`
+	Labels     []uint32            `json:"labels"`
+	Name       string              `json:"name"`
+	PeerName   string              `json:"peer_name"`
+}
+
+type inetPrefix struct {
+	ID        string `json:"_id,omitempty"`
+	Key       string `json:"_key,omitempty"`
+	Prefix    string `json:"prefix,omitempty"`
+	PrefixLen int32  `json:"prefix_len,omitempty"`
+	OriginAS  int32  `json:"origin_as"`
+}
+
+type inetPrefixEdgeObject struct {
+	Key        string              `json:"_key"`
+	From       string              `json:"_from"`
+	To         string              `json:"_to"`
+	Prefix     string              `json:"prefix"`
+	PrefixLen  int32               `json:"prefix_len"`
+	LocalIP    string              `json:"router_ip"`
+	PeerIP     string              `json:"peer_ip"`
+	BaseAttrs  *bgp.BaseAttributes `json:"base_attrs"`
+	PeerASN    uint32              `json:"peer_asn"`
+	OriginAS   int32               `json:"origin_as"`
+	ProtocolID base.ProtoID        `json:"protocol_id"`
+	Nexthop    string              `json:"nexthop"`
+	Labels     []uint32            `json:"labels"`
+	Name       string              `json:"name"`
+	PeerName   string              `json:"peer_name"`
 }

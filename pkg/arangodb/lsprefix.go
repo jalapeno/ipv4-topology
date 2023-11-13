@@ -52,22 +52,16 @@ func (a *arangoDB) lsprefixHandler(obj *kafkanotifier.EventMessage) error {
 		}
 	}
 	//glog.V(5).Infof("Complete processing action: %s for key: %s ID: %s", obj.Action, obj.Key, obj.ID)
-
-	// write event into ls_topoogy_v4 topic
 	a.notifier.EventNotification(obj)
-
 	return nil
 }
 
-// processEdge processes a single ls_link connection which is a unidirectional edge between two nodes (vertices).
 func (a *arangoDB) processLSPrefixEdge(ctx context.Context, key string, p *message.LSPrefix) error {
 	//glog.V(9).Infof("processEdge processing lsprefix: %s", l.ID)
-
 	// filter out IPv6, ls link, and loopback prefixes
 	if p.MTID != nil || p.PrefixLen == 30 || p.PrefixLen == 31 || p.PrefixLen == 32 {
 		return nil
 	}
-
 	// get remote node from ls_link entry
 	lsnode, err := a.getLSNode(ctx, p, false)
 	if err != nil {
@@ -79,7 +73,6 @@ func (a *arangoDB) processLSPrefixEdge(ctx context.Context, key string, p *messa
 		return err
 	}
 	//glog.V(9).Infof("processEdge completed processing lsprefix: %s for ls nodes: %s - %s", l.ID, ln.ID, rn.ID)
-
 	return nil
 }
 
@@ -92,7 +85,6 @@ func (a *arangoDB) processPrefixRemoval(ctx context.Context, key string, action 
 		}
 		return nil
 	}
-
 	return nil
 }
 

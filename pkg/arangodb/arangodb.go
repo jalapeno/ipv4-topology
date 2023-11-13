@@ -17,13 +17,13 @@ type arangoDB struct {
 	dbclient.DB
 	*ArangoConn
 	stop          chan struct{}
-	lsnode        driver.Collection
 	lslink        driver.Collection
 	lsprefix      driver.Collection
 	graph         driver.Collection
 	lsnodeExt     driver.Collection
 	unicastprefix driver.Collection
 	peer          driver.Collection
+	inetPrefix    driver.Collection
 	lstopoV4      driver.Graph
 	ipv4topo      driver.Graph
 	notifier      kafkanotifier.Event
@@ -31,7 +31,7 @@ type arangoDB struct {
 
 // NewDBSrvClient returns an instance of a DB server client process
 func NewDBSrvClient(arangoSrv, user, pass, dbname, lslink string, lsprefix string, lsnodeExt string,
-	unicastprefix string, peer string, lstopoV4 string, ipv4topo string, notifier kafkanotifier.Event) (dbclient.Srv, error) {
+	unicastprefix string, peer string, inetPrefix string, lstopoV4 string, ipv4topo string, notifier kafkanotifier.Event) (dbclient.Srv, error) {
 	if err := tools.URLAddrValidation(arangoSrv); err != nil {
 		return nil, err
 	}
@@ -83,6 +83,12 @@ func NewDBSrvClient(arangoSrv, user, pass, dbname, lslink string, lsprefix strin
 		return nil, err
 	}
 
+	// Check if original ls_node collection exists, if not fail as Jalapeno topology is not running
+	arango.inetPrefix, err = arango.db.Collection(context.TODO(), inetPrefix)
+	if err != nil {
+		return nil, err
+	}
+
 	// Check if original ls_topology collection exists, if not fail as Jalapeno topology is not running
 	arango.lstopoV4, err = arango.db.Graph(context.TODO(), lstopoV4)
 	if err != nil {
@@ -102,7 +108,7 @@ func NewDBSrvClient(arangoSrv, user, pass, dbname, lslink string, lsprefix strin
 		glog.Infof("ls_node_extended collection found %s, proceed to processing data", c)
 	}
 
-	// check for ls topology graph
+	// check for ipv4 topology graph
 	found, err = arango.db.GraphExists(context.TODO(), ipv4topo)
 	if err != nil {
 		return nil, err
@@ -172,18 +178,18 @@ func (a *arangoDB) StoreMessage(msgType dbclient.CollectionType, msg []byte) err
 	case bmp.LSLinkMsg:
 		return a.lsLinkHandler(event)
 	}
-	// switch msgType {
-	// case bmp.LSPrefixMsg:
-	// 	return a.lsprefixHandler(event)
-	// }
-	// switch msgType {
-	// case bmp.PeerStateChangeMsg:
-	// 	return a.peerHandler(event)
-	// }
 	switch msgType {
-	case bmp.UnicastPrefixV4Msg:
-		return a.unicastprefixHandler(event)
+	case bmp.LSPrefixMsg:
+		return a.lsprefixHandler(event)
 	}
+	switch msgType {
+	case bmp.PeerStateChangeMsg:
+		return a.peerHandler(event)
+	}
+	// switch msgType {
+	// case bmp.UnicastPrefixV4Msg:
+	// 	return a.unicastprefixHandler(event)
+	// }
 	return nil
 }
 
@@ -211,14 +217,13 @@ func (a *arangoDB) loadEdge() error {
 		} else if err != nil {
 			return err
 		}
-		glog.Infof("processing eBGP peers for ls_node: %s", p.Key)
+		//glog.Infof("processing eBGP peers for ls_node: %s", p.Key)
 		if err := a.processEBGPPeer(ctx, meta.Key, &p); err != nil {
 			glog.Errorf("failed to process key: %s with error: %+v", meta.Key, err)
 			continue
 		}
 	}
 
-	glog.Infof(" begin epe processing")
 	epe_query := "for l in ls_link filter l.protocol_id == 7 filter l._key !like " + "\"%:%\"" + " return l"
 	cursor, err = a.db.Query(ctx, epe_query, nil)
 	if err != nil {
@@ -233,33 +238,12 @@ func (a *arangoDB) loadEdge() error {
 		} else if err != nil {
 			return err
 		}
-		glog.Infof("get ipv4 epe_link: %s", p.Key)
+		//glog.Infof("get ipv4 epe_link: %s", p.Key)
 		if err := a.processEPE(ctx, meta.Key, &p); err != nil {
 			glog.Errorf("failed to process key: %s with error: %+v", meta.Key, err)
 			continue
 		}
 	}
-
-	// epe_prefix_query := "for d in " + a.peer.Name() + " return d"
-	// cursor, err = a.db.Query(ctx, epe_prefix_query, nil)
-	// if err != nil {
-	// 	return err
-	// }
-	// defer cursor.Close()
-	// for {
-	// 	var p message.PeerStateChange
-	// 	meta, err := cursor.ReadDocument(ctx, &p)
-	// 	if driver.IsNoMoreDocuments(err) {
-	// 		break
-	// 	} else if err != nil {
-	// 		return err
-	// 	}
-	// 	glog.V(5).Infof("get ipv4 eBGP peer: %s", p.Key)
-	// 	if err := a.processUnicastPrefix(ctx, meta.Key, &p); err != nil {
-	// 		glog.Errorf("failed to process key: %s with error: %+v", meta.Key, err)
-	// 		continue
-	// 	}
-	// }
 
 	ibgp_prefix_query := "for l in " + a.lsnodeExt.Name() + " return l"
 	cursor, err = a.db.Query(ctx, ibgp_prefix_query, nil)
@@ -275,7 +259,7 @@ func (a *arangoDB) loadEdge() error {
 		} else if err != nil {
 			return err
 		}
-		glog.Infof("get ipv4 iBGP prefixes attach to lsnode: %s", p.Key)
+		//glog.Infof("get ipv4 iBGP prefixes attach to lsnode: %s", p.Key)
 		if err := a.processIBGP(ctx, meta.Key, &p); err != nil {
 			glog.Errorf("failed to process key: %s with error: %+v", meta.Key, err)
 			continue
@@ -297,8 +281,10 @@ func (a *arangoDB) loadEdge() error {
 		} else if err != nil {
 			return err
 		}
-		glog.Infof("get ipv4 eBGP prefixes: %s", p.Key)
+		//glog.Infof("get ipv4 eBGP prefixes: %s", p.Key)
 		if err := a.processUnicastPrefix(ctx, meta.Key, &p); err != nil {
+			//if err := a.processUnicastPrefix(ctx, meta.Key, &p); err != nil {
+
 			glog.Errorf("failed to process key: %s with error: %+v", meta.Key, err)
 			continue
 		}
