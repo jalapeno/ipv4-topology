@@ -83,7 +83,7 @@ func NewDBSrvClient(arangoSrv, user, pass, dbname, lslink string, lsprefix strin
 		return nil, err
 	}
 
-	// Check if original ls_node collection exists, if not fail as Jalapeno topology is not running
+	// Check if inet_prefix collection exists, if not fail as Jalapeno topology is not running
 	arango.inetPrefix, err = arango.db.Collection(context.TODO(), inetPrefix)
 	if err != nil {
 		return nil, err
@@ -91,6 +91,7 @@ func NewDBSrvClient(arangoSrv, user, pass, dbname, lslink string, lsprefix strin
 
 	// Check if original ls_topology collection exists, if not fail as Jalapeno topology is not running
 	arango.lstopoV4, err = arango.db.Graph(context.TODO(), lstopoV4)
+	glog.Infof("lsv4 topo collection found %+v", lstopoV4)
 	if err != nil {
 		return nil, err
 	}
@@ -186,10 +187,10 @@ func (a *arangoDB) StoreMessage(msgType dbclient.CollectionType, msg []byte) err
 	case bmp.PeerStateChangeMsg:
 		return a.peerHandler(event)
 	}
-	// switch msgType {
-	// case bmp.UnicastPrefixV4Msg:
-	// 	return a.unicastprefixHandler(event)
-	// }
+	switch msgType {
+	case bmp.UnicastPrefixV4Msg:
+		return a.unicastprefixHandler(event)
+	}
 	return nil
 }
 

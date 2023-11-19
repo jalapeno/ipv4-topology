@@ -4,15 +4,17 @@ import (
 	"context"
 
 	driver "github.com/arangodb/go-driver"
+	"github.com/golang/glog"
 	"github.com/sbezverk/gobmp/pkg/message"
 )
 
 // processEdge processes a unicast prefix connection which is a unidirectional edge between an eBGP peer and LSNode
 func (a *arangoDB) processIBGP(ctx context.Context, key string, e *LSNodeExt) error {
 	query := "for l in unicast_prefix_v4" +
-		" filter l.peer_ip == " + "\"" + e.RouterID + "\"" + " filter l.origin_as == Null filter l.prefix_len != 32 "
+		" filter l.peer_ip == " + "\"" + e.RouterID + "\"" +
+		" filter l.nexthop == l.peer_ip filter l.origin_as == Null filter l.prefix_len != 32 "
 	query += " return l	"
-	//glog.V(5).Infof("running query: %s", query)
+	glog.Infof("running iBGP prefix query: %s", query)
 	pcursor, err := a.db.Query(ctx, query, nil)
 	if err != nil {
 		return err
@@ -31,7 +33,7 @@ func (a *arangoDB) processIBGP(ctx context.Context, key string, e *LSNodeExt) er
 			break
 		}
 
-		//glog.V(5).Infof("ls node %s + unicastprefix %s", e.Key, up.Key)
+		glog.Infof("ls node %s + unicastprefix %s", e.Key, up.Key)
 		ne := unicastPrefixEdgeObject{
 			Key:       mp.ID.Key(),
 			From:      e.ID,
@@ -56,50 +58,6 @@ func (a *arangoDB) processIBGP(ctx context.Context, key string, e *LSNodeExt) er
 			if _, err := a.graph.UpdateDocument(ctx, ne.Key, &ne); err != nil {
 				return err
 			}
-		}
-	}
-
-	return nil
-}
-
-// processEdge processes a unicast prefix connection which is a unidirectional edge between an eBGP peer and LSNode
-func (a *arangoDB) processInternalPrefix(ctx context.Context, key string, e *message.UnicastPrefix) error {
-	query := "FOR d IN " + a.lsnodeExt.Name() +
-		" filter d.router_id == " + "\"" + e.PeerIP + "\"" //+
-	query += " return d"
-	//glog.V(5).Infof("running filtered query: %s", query)
-	ncursor, err := a.db.Query(ctx, query, nil)
-	if err != nil {
-		return err
-	}
-	defer ncursor.Close()
-	var nm LSNodeExt
-	mn, err := ncursor.ReadDocument(ctx, &nm)
-	if err != nil {
-		if !driver.IsNoMoreDocuments(err) {
-			return err
-		}
-	}
-	ne := unicastPrefixEdgeObject{
-		Key:       key,
-		From:      mn.ID.String(),
-		To:        e.ID,
-		Prefix:    e.Prefix,
-		PrefixLen: e.PrefixLen,
-		LocalIP:   e.RouterIP,
-		PeerIP:    e.PeerIP,
-		BaseAttrs: e.BaseAttributes,
-		PeerASN:   e.PeerASN,
-		OriginAS:  e.OriginAS,
-	}
-
-	if _, err := a.graph.CreateDocument(ctx, &ne); err != nil {
-		if !driver.IsConflict(err) {
-			return err
-		}
-		// The document already exists, updating it with the latest info
-		if _, err := a.graph.UpdateDocument(ctx, ne.Key, &ne); err != nil {
-			return err
 		}
 	}
 

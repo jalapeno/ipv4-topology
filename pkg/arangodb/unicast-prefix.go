@@ -47,8 +47,10 @@ func (a *arangoDB) unicastprefixHandler(obj *kafkanotifier.EventMessage) error {
 
 // processEdge processes a single ls_link connection which is a unidirectional edge between two nodes (vertices).
 func (a *arangoDB) processUnicastPrefix(ctx context.Context, key string, l *message.UnicastPrefix) error {
+	// todo: process iBGP prefixes
+
 	// if base.ProtoID(l.BaseAttributes.LocalPref) == nil {
-	// 	return nil
+	// 	return a.processIBGP(ctx, key, &l)
 	// }
 	glog.Infof("processEdge processing unicast prefix: %s", l.ID)
 	ln, err := a.getInetPfx(ctx, l, true)
