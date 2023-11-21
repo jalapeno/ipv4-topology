@@ -35,9 +35,10 @@ func (a *arangoDB) processIBGP(ctx context.Context, key string, e *LSNodeExt) er
 
 		glog.Infof("ls node %s + unicastprefix %s", e.Key, up.Key)
 		ne := unicastPrefixEdgeObject{
-			Key:       mp.ID.Key(),
-			From:      e.ID,
-			To:        mp.ID.String(),
+			Key:  mp.ID.Key(),
+			From: e.ID,
+			To:   up.ID,
+			// To:        mp.ID.String(),
 			Prefix:    up.Prefix,
 			PrefixLen: up.PrefixLen,
 			LocalIP:   e.RouterID,
