@@ -4,57 +4,12 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
 
 	driver "github.com/arangodb/go-driver"
 	"github.com/golang/glog"
-	"github.com/jalapeno/ipv4-topology/pkg/kafkanotifier"
 	"github.com/sbezverk/gobmp/pkg/base"
 	"github.com/sbezverk/gobmp/pkg/message"
 )
-
-func (a *arangoDB) lsprefixHandler(obj *kafkanotifier.EventMessage) error {
-	ctx := context.TODO()
-	if obj == nil {
-		return fmt.Errorf("event message is nil")
-	}
-	// Check if Collection encoded in ID exists
-	c := strings.Split(obj.ID, "/")[0]
-	if strings.Compare(c, a.lsprefix.Name()) != 0 {
-		return fmt.Errorf("configured collection name %s and received in event collection name %s do not match", a.lsprefix.Name(), c)
-	}
-	//glog.V(5).Infof("Processing action: %s for key: %s ID: %s", obj.Action, obj.Key, obj.ID)
-	var o message.LSPrefix
-	_, err := a.lsprefix.ReadDocument(ctx, obj.Key, &o)
-	if err != nil {
-		// In case of a ls_link removal notification, reading it will return Not Found error
-		if !driver.IsNotFound(err) {
-			return fmt.Errorf("failed to read existing document %s with error: %+v", obj.Key, err)
-		}
-		// If operation matches to "del" then it is confirmed delete operation, otherwise return error
-		if obj.Action != "del" {
-			return fmt.Errorf("document %s not found but Action is not \"del\", possible stale event", obj.Key)
-		}
-		err := a.processPrefixRemoval(ctx, obj.Key, obj.Action)
-		if err != nil {
-			return err
-		}
-		// write event into ls_node_edge topic
-		a.notifier.EventNotification(obj)
-		return nil
-	}
-	switch obj.Action {
-	case "add":
-		fallthrough
-	case "update":
-		if err := a.processLSPrefixEdge(ctx, obj.Key, &o); err != nil {
-			return fmt.Errorf("failed to process action %s for edge %s with error: %+v", obj.Action, obj.Key, err)
-		}
-	}
-	//glog.V(5).Infof("Complete processing action: %s for key: %s ID: %s", obj.Action, obj.Key, obj.ID)
-	a.notifier.EventNotification(obj)
-	return nil
-}
 
 func (a *arangoDB) processLSPrefixEdge(ctx context.Context, key string, p *message.LSPrefix) error {
 	//glog.V(9).Infof("processEdge processing lsprefix: %s", l.ID)
@@ -131,8 +86,9 @@ func (a *arangoDB) createLSPrefixEdgeObject(ctx context.Context, l *message.LSPr
 	if l.MTID != nil {
 		mtid = int(l.MTID.MTID)
 	}
+	//glog.Infof("edge lsprefix %+v to/from lsnode %+v", l.Key, ln.Key)
 	ne := lsTopologyObject{
-		Key:            l.Key,
+		Key:            l.Key + "_" + ln.Key,
 		From:           ln.ID,
 		To:             l.ID,
 		Link:           l.Key,
@@ -157,5 +113,30 @@ func (a *arangoDB) createLSPrefixEdgeObject(ctx context.Context, l *message.LSPr
 		}
 	}
 
+	fp := lsTopologyObject{
+		Key:            ln.Key + "_" + l.Key,
+		From:           l.ID,
+		To:             ln.ID,
+		Link:           l.Key,
+		ProtocolID:     l.ProtocolID,
+		DomainID:       l.DomainID,
+		MTID:           uint16(mtid),
+		AreaID:         l.AreaID,
+		Protocol:       l.Protocol,
+		LocalNodeASN:   ln.ASN,
+		Prefix:         l.Prefix,
+		PrefixLen:      l.PrefixLen,
+		PrefixMetric:   l.PrefixMetric,
+		PrefixAttrTLVs: l.PrefixAttrTLVs,
+	}
+	if _, err := a.graph.CreateDocument(ctx, &fp); err != nil {
+		if !driver.IsConflict(err) {
+			return err
+		}
+		// The document already exists, updating it with the latest info
+		if _, err := a.graph.UpdateDocument(ctx, fp.Key, &fp); err != nil {
+			return err
+		}
+	}
 	return nil
 }

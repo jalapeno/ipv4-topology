@@ -2,149 +2,238 @@ package arangodb
 
 import (
 	"context"
-	"fmt"
 
 	driver "github.com/arangodb/go-driver"
 	"github.com/golang/glog"
-	"github.com/jalapeno/ipv4-topology/pkg/kafkanotifier"
 	"github.com/sbezverk/gobmp/pkg/message"
 )
 
-func (a *arangoDB) peerHandler(obj *kafkanotifier.EventMessage) error {
-	ctx := context.TODO()
-	if obj == nil {
-		return fmt.Errorf("event message is nil")
-	}
-	glog.V(5).Infof("Processing action: %s for key: %s ID: %s", obj.Action, obj.Key, obj.ID)
-	var o message.PeerStateChange
-	_, err := a.peer.ReadDocument(ctx, obj.Key, &o)
+func (a *arangoDB) processPeerSession(ctx context.Context, key string, p *message.PeerStateChange) error {
+
+	glog.Infof("process ebgp session: %s", p.Key)
+	// get local node from ls_link entry
+	ln, err := a.getPeer(ctx, p, true)
 	if err != nil {
-		// In case of a UnicastPrefix removal notification, reading it will return Not Found error
-		if !driver.IsNotFound(err) {
-			return fmt.Errorf("failed to read existing document %s with error: %+v", obj.Key, err)
-		}
-		// If operation matches to "del" then it is confirmed delete operation, otherwise return error
-		if obj.Action != "del" {
-			return fmt.Errorf("document %s not found but Action is not \"del\", possible stale event", obj.Key)
-		}
-		return a.processPeerRemoval(ctx, obj.ID)
+		glog.Errorf("processEdge failed to get local peer %s for link: %s with error: %+v", p.LocalBGPID, p.ID, err)
+		return err
 	}
-	switch obj.Action {
-	case "update":
-		//glog.V(5).Infof("Send update msg to processEPEPrefix function")
-		if err := a.processPeer(ctx, obj.Key, &o); err != nil {
-			return fmt.Errorf("failed to process action %s for edge %s with error: %+v", obj.Action, obj.Key, err)
+
+	// get remote node from ebgp peer entry
+	rn, err := a.getPeer(ctx, p, false)
+	if err != nil {
+		glog.Errorf("processEdge failed to get remote peer %s for link: %s with error: %+v", p.RemoteBGPID, p.ID, err)
+		return err
+	}
+	if err := a.createPeerEdge(ctx, p, ln, rn); err != nil {
+		glog.Errorf("processEdge failed to create Edge object with error: %+v", err)
+		return err
+	}
+	//glog.V(9).Infof("processEdge completed processing lslink: %s for ls nodes: %s - %s", l.ID, ln.ID, rn.ID)
+
+	return nil
+}
+
+func (a *arangoDB) getPeer(ctx context.Context, e *message.PeerStateChange, local bool) (ebgpPeer, error) {
+	// Need to find ls_node object matching ls_link's IGP Router ID
+	query := "FOR d IN " + a.ebgpPeer.Name()
+	if local {
+		//glog.Infof("get local node per session: %s, %s", e.LocalBGPID, e.ID)
+		query += " filter d.bgp_router_id == " + "\"" + e.LocalBGPID + "\""
+	} else {
+		//glog.Infof("get remote node per session: %s, %v", e.RemoteBGPID, e.ID)
+		query += " filter d.bgp_router_id == " + "\"" + e.RemoteBGPID + "\""
+	}
+	query += " return d"
+	//glog.Infof("query: %+v", query)
+	lcursor, err := a.db.Query(ctx, query, nil)
+	if err != nil {
+		glog.Errorf("failed to process key: %s with error: %+v", e.Key, err)
+	}
+	defer lcursor.Close()
+	var ln ebgpPeer
+	i := 0
+	for ; ; i++ {
+		_, err := lcursor.ReadDocument(ctx, &ln)
+		if err != nil {
+			if !driver.IsNoMoreDocuments(err) {
+				glog.Errorf("failed to process key: %s with error: %+v", e.Key, err)
+			}
+			break
 		}
-	case "add":
-		//glog.V(5).Infof("Send add msg to processEPEPrefix function")
-		if err := a.processPeer(ctx, obj.Key, &o); err != nil {
-			return fmt.Errorf("failed to process action %s for edge %s with error: %+v", obj.Action, obj.Key, err)
+	}
+	if i == 0 {
+		glog.Errorf("query %s returned 0 results", query)
+	}
+	if i > 1 {
+		glog.Errorf("query %s returned more than 1 result", query)
+	}
+
+	return ln, nil
+}
+
+func (a *arangoDB) createPeerEdge(ctx context.Context, l *message.PeerStateChange, ln, rn ebgpPeer) error {
+
+	pf := peerFromObject{
+		Key:       l.Key,
+		From:      ln.ID,
+		To:        rn.ID,
+		LocalIP:   l.LocalIP,
+		RemoteIP:  l.RemoteIP,
+		LocalASN:  l.LocalASN,
+		RemoteASN: l.RemoteASN,
+	}
+	if _, err := a.graph.CreateDocument(ctx, &pf); err != nil {
+		if !driver.IsConflict(err) {
+			return err
 		}
-	default:
+		// The document already exists, updating it with the latest info
+		if _, err := a.graph.UpdateDocument(ctx, pf.Key, &pf); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-// processEdge processes a unicast prefix connection which is a unidirectional edge between an eBGP peer and LSNode
-func (a *arangoDB) processEBGPPeer(ctx context.Context, key string, e *LSNodeExt) error {
-	query := "for l in peer" +
-		" filter l.local_ip !like " + "\"%:%\"" +
-		" filter l.local_asn != l.remote_asn " +
-		" filter l.local_bgp_id == " + "\"" + e.RouterID + "\""
-	query += " return l	"
-	//glog.Infof("running query: %s", query)
-	pcursor, err := a.db.Query(ctx, query, nil)
+func (a *arangoDB) processEgressPeer(ctx context.Context, key string, p *message.PeerStateChange) error {
+
+	glog.Infof("process ebgp session: %s", p.Key)
+	// get local node from ls_link entry
+	ln, err := a.getLocalnode(ctx, p, true)
 	if err != nil {
+		glog.Errorf("processEdge failed to get local peer %s for link: %s with error: %+v", p.LocalBGPID, p.ID, err)
 		return err
 	}
-	defer pcursor.Close()
-	for {
-		var p message.PeerStateChange
-		peer, err := pcursor.ReadDocument(ctx, &p)
-		if err != nil {
-			if driver.IsNoMoreDocuments(err) {
-				return err
-			}
-			if !driver.IsNoMoreDocuments(err) {
-				return err
-			}
-			break
-		}
-		//glog.Infof("ls node ext %s + to eBGP peer %s", p.Key, e.Key)
-		ne := peerEdgeObject{
-			Key:         e.RouterID + "_" + peer.ID.Key(),
-			From:        e.ID,
-			To:          peer.ID.String(),
-			LocalBGPID:  e.RouterID,
-			RemoteBGPID: p.RemoteBGPID,
-			LocalIP:     p.LocalIP,
-			RemoteIP:    p.RemoteIP,
-			RemoteASN:   p.RemoteASN,
-			Name:        e.Name,
-		}
-		if _, err := a.graph.CreateDocument(ctx, &ne); err != nil {
-			if !driver.IsConflict(err) {
-				return err
-			}
-			// The document already exists, updating it with the latest info
-			if _, err := a.graph.UpdateDocument(ctx, ne.Key, &ne); err != nil {
-				return err
-			}
-		}
+
+	// get remote node from ebgp peer entry
+	rn, err := a.getExtPeer(ctx, p, false)
+	if err != nil {
+		glog.Errorf("processEdge failed to get remote peer %s for link: %s with error: %+v", p.RemoteBGPID, p.ID, err)
+		return err
 	}
+	if err := a.createPRedge(ctx, p, ln, rn); err != nil {
+		glog.Errorf("processEdge failed to create Edge object with error: %+v", err)
+		return err
+	}
+	//glog.V(9).Infof("processEdge completed processing lslink: %s for ls nodes: %s - %s", l.ID, ln.ID, rn.ID)
+
 	return nil
 }
 
-//processEdge processes a unicast prefix connection which is a unidirectional edge between an eBGP peer and LSNode
-func (a *arangoDB) processPeer(ctx context.Context, key string, e *message.PeerStateChange) error {
-	query := "for l in peer " +
-		" filter l.local_ip !like " + "\"%:%\"" +
-		" filter l.remote_ip == " + "\"" + e.LocalIP + "\""
-	query += " return l	"
-	glog.V(5).Infof("running query: %s", query)
-	pcursor, err := a.db.Query(ctx, query, nil)
-	if err != nil {
-		return err
+func (a *arangoDB) getLocalnode(ctx context.Context, e *message.PeerStateChange, local bool) (LSNodeExt, error) {
+	// Need to find ls_node object matching ls_link's IGP Router ID
+	query := "FOR d IN " + a.lsnodeExt.Name()
+	if local {
+		glog.Infof("get local node per session: %s, %s", e.LocalBGPID, e.ID)
+		query += " filter d.router_id == " + "\"" + e.LocalBGPID + "\""
+	} else {
+		glog.Infof("get remote node per session: %s, %v", e.RemoteBGPID, e.ID)
+		query += " filter d.router_id == " + "\"" + e.RemoteBGPID + "\""
 	}
-	defer pcursor.Close()
-	for {
-		var pr message.PeerStateChange
-		peer, err := pcursor.ReadDocument(ctx, &pr)
+	query += " return d"
+	//glog.Infof("query: %+v", query)
+	lcursor, err := a.db.Query(ctx, query, nil)
+	if err != nil {
+		glog.Errorf("failed to process key: %s with error: %+v", e.Key, err)
+	}
+	defer lcursor.Close()
+	var ln LSNodeExt
+	i := 0
+	for ; ; i++ {
+		_, err := lcursor.ReadDocument(ctx, &ln)
 		if err != nil {
-			if driver.IsNoMoreDocuments(err) {
-				return err
-			}
 			if !driver.IsNoMoreDocuments(err) {
-				return err
+				glog.Errorf("failed to process key: %s with error: %+v", e.Key, err)
 			}
 			break
 		}
-
-		glog.V(5).Infof("local peer %s + to remote eBGP peer %s", e.Key, pr.Key)
-		ne := peerEdgeObject{
-			Key:         peer.ID.Key(),
-			From:        e.ID,
-			To:          pr.ID,
-			LocalBGPID:  e.LocalBGPID,
-			RemoteBGPID: e.RemoteBGPID,
-			LocalIP:     e.LocalIP,
-			RemoteIP:    e.RemoteIP,
-			LocalASN:    e.LocalASN,
-			RemoteASN:   e.RemoteASN,
-			Name:        e.Name,
-		}
-
-		if _, err := a.graph.CreateDocument(ctx, &ne); err != nil {
-			if !driver.IsConflict(err) {
-				return err
-			}
-			// The document already exists, updating it with the latest info
-			if _, err := a.graph.UpdateDocument(ctx, ne.Key, &ne); err != nil {
-				return err
-			}
-		}
+	}
+	if i == 0 {
+		glog.Errorf("query %s returned 0 results", query)
+	}
+	if i > 1 {
+		glog.Errorf("query %s returned more than 1 result", query)
 	}
 
+	return ln, nil
+}
+
+func (a *arangoDB) getExtPeer(ctx context.Context, e *message.PeerStateChange, local bool) (ebgpPeer, error) {
+	// Need to find ls_node object matching ls_link's IGP Router ID
+	query := "FOR d IN " + a.ebgpPeer.Name()
+	if local {
+		glog.Infof("get local node per session: %s, %s", e.LocalBGPID, e.ID)
+		query += " filter d.bgp_router_id == " + "\"" + e.LocalBGPID + "\""
+	} else {
+		glog.Infof("get remote node per session: %s, %v", e.RemoteBGPID, e.ID)
+		query += " filter d.bgp_router_id == " + "\"" + e.RemoteBGPID + "\""
+	}
+	query += " return d"
+	//glog.Infof("query: %+v", query)
+	lcursor, err := a.db.Query(ctx, query, nil)
+	if err != nil {
+		glog.Errorf("failed to process key: %s with error: %+v", e.Key, err)
+	}
+	defer lcursor.Close()
+	var ln ebgpPeer
+	i := 0
+	for ; ; i++ {
+		_, err := lcursor.ReadDocument(ctx, &ln)
+		if err != nil {
+			if !driver.IsNoMoreDocuments(err) {
+				glog.Errorf("failed to process key: %s with error: %+v", e.Key, err)
+			}
+			break
+		}
+	}
+	if i == 0 {
+		glog.Errorf("query %s returned 0 results", query)
+	}
+	if i > 1 {
+		glog.Errorf("query %s returned more than 1 result", query)
+	}
+
+	return ln, nil
+}
+
+func (a *arangoDB) createPRedge(ctx context.Context, p *message.PeerStateChange, ln LSNodeExt, rn ebgpPeer) error {
+
+	pf := peerToObject{
+		Key:       ln.Key + "_" + p.Key,
+		From:      ln.ID,
+		To:        rn.ID,
+		LocalIP:   p.LocalIP,
+		RemoteIP:  p.RemoteIP,
+		LocalASN:  p.LocalASN,
+		RemoteASN: p.RemoteASN,
+	}
+	if _, err := a.graph.CreateDocument(ctx, &pf); err != nil {
+		if !driver.IsConflict(err) {
+			return err
+		}
+		// The document already exists, updating it with the latest info
+		if _, err := a.graph.UpdateDocument(ctx, pf.Key, &pf); err != nil {
+			return err
+		}
+	}
+	pt := peerFromObject{
+		Key:       rn.Key + "_" + p.Key,
+		From:      rn.ID,
+		To:        ln.ID,
+		Session:   p.Key,
+		LocalIP:   p.LocalIP,
+		RemoteIP:  p.RemoteIP,
+		LocalASN:  p.LocalASN,
+		RemoteASN: p.RemoteASN,
+	}
+	if _, err := a.graph.CreateDocument(ctx, &pt); err != nil {
+		if !driver.IsConflict(err) {
+			return err
+		}
+		// The document already exists, updating it with the latest info
+		if _, err := a.graph.UpdateDocument(ctx, pt.Key, &pt); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

@@ -8,13 +8,12 @@ import (
 	"github.com/sbezverk/gobmp/pkg/message"
 )
 
-// processEdge processes a unicast prefix connection which is a unidirectional edge between an eBGP peer and LSNode
-func (a *arangoDB) processIBGP(ctx context.Context, key string, e *LSNodeExt) error {
+func (a *arangoDB) processIBGPPrefix(ctx context.Context, key string, e *LSNodeExt) error {
 	query := "for l in unicast_prefix_v4" +
 		" filter l.peer_ip == " + "\"" + e.RouterID + "\"" +
-		" filter l.nexthop == l.peer_ip filter l.origin_as == Null filter l.prefix_len != 32 "
+		" filter l.nexthop == l.peer_ip filter l.origin_as == Null " +
+		" filter l.prefix_len != 32 filter l.prefix != " + "\"0.0.0.0\""
 	query += " return l	"
-	glog.Infof("running iBGP prefix query: %s", query)
 	pcursor, err := a.db.Query(ctx, query, nil)
 	if err != nil {
 		return err
@@ -33,12 +32,11 @@ func (a *arangoDB) processIBGP(ctx context.Context, key string, e *LSNodeExt) er
 			break
 		}
 
-		glog.Infof("ls node %s + unicastprefix %s", e.Key, up.Key)
-		ne := unicastPrefixEdgeObject{
-			Key:  mp.ID.Key(),
-			From: e.ID,
-			To:   up.ID,
-			// To:        mp.ID.String(),
+		glog.Infof("ls node %s + iBGP prefix %s, meta %+v", e.Key, up.Key, mp)
+		from := unicastPrefixEdgeObject{
+			Key:       up.Key + "_" + e.Key,
+			From:      up.ID,
+			To:        e.ID,
 			Prefix:    up.Prefix,
 			PrefixLen: up.PrefixLen,
 			LocalIP:   e.RouterID,
@@ -51,12 +49,37 @@ func (a *arangoDB) processIBGP(ctx context.Context, key string, e *LSNodeExt) er
 			Name:      e.Name,
 		}
 
-		if _, err := a.graph.CreateDocument(ctx, &ne); err != nil {
+		if _, err := a.graph.CreateDocument(ctx, &from); err != nil {
 			if !driver.IsConflict(err) {
 				return err
 			}
 			// The document already exists, updating it with the latest info
-			if _, err := a.graph.UpdateDocument(ctx, ne.Key, &ne); err != nil {
+			if _, err := a.graph.UpdateDocument(ctx, from.Key, &from); err != nil {
+				return err
+			}
+		}
+		to := unicastPrefixEdgeObject{
+			Key:       e.Key + "_" + up.Key,
+			From:      e.ID,
+			To:        up.ID,
+			Prefix:    up.Prefix,
+			PrefixLen: up.PrefixLen,
+			LocalIP:   e.RouterID,
+			PeerIP:    up.PeerIP,
+			BaseAttrs: up.BaseAttributes,
+			PeerASN:   e.PeerASN,
+			OriginAS:  up.OriginAS,
+			Nexthop:   up.Nexthop,
+			Labels:    up.Labels,
+			Name:      e.Name,
+		}
+
+		if _, err := a.graph.CreateDocument(ctx, &to); err != nil {
+			if !driver.IsConflict(err) {
+				return err
+			}
+			// The document already exists, updating it with the latest info
+			if _, err := a.graph.UpdateDocument(ctx, to.Key, &to); err != nil {
 				return err
 			}
 		}
