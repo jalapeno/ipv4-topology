@@ -84,6 +84,5 @@ func (a *arangoDB) processIBGPPrefix(ctx context.Context, key string, e *LSNodeE
 			}
 		}
 	}
-
 	return nil
 }

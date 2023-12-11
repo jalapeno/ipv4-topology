@@ -77,7 +77,6 @@ func (a *arangoDB) getLSNode(ctx context.Context, p *message.LSPrefix, local boo
 	if i > 1 {
 		return nil, fmt.Errorf("query %s returned more than 1 result", query)
 	}
-
 	return &ln, nil
 }
 

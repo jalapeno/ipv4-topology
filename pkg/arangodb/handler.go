@@ -51,7 +51,6 @@ func (a *arangoDB) lsLinkHandler(obj *kafkanotifier.EventMessage) error {
 	}
 	// write event into ls_topoogy_v4 topic
 	a.notifier.EventNotification(obj)
-
 	return nil
 }
 
@@ -105,7 +104,7 @@ func (a *arangoDB) peerHandler(obj *kafkanotifier.EventMessage) error {
 	}
 	//glog.Infof("Processing action: %s for key: %s ID: %s", obj.Action, obj.Key, obj.ID)
 	var o message.PeerStateChange
-	_, err := a.ebgpPeer.ReadDocument(ctx, obj.Key, &o)
+	_, err := a.bgpNode.ReadDocument(ctx, obj.Key, &o)
 	if err != nil {
 		// In case of a peer removal notification, reading it will return Not Found error
 		if !driver.IsNotFound(err) {

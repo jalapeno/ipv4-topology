@@ -194,7 +194,7 @@ type inetPrefixEdgeObject struct {
 	PeerName   string              `json:"peer_name"`
 }
 
-type ebgpPeer struct {
+type bgpNode struct {
 	Key             string         `json:"_key,omitempty"`
 	ID              string         `json:"_id,omitempty"`
 	BGPRouterID     string         `json:"router_id,omitempty"`
