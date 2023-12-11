@@ -10,7 +10,7 @@ import (
 )
 
 func (a *arangoDB) processInetPrefix(ctx context.Context, key string, e *message.UnicastPrefix) error {
-	query := "for l in ebgp_peer_v4 filter l.asn !in 64512..65535" //+
+	query := "for l in bgp_node filter l.asn !in 64512..65535" //+
 	//" filter l.asn == " + strconv.Itoa(int(e.OriginAS))
 	query += " return l	"
 	pcursor, err := a.db.Query(ctx, query, nil)
@@ -69,7 +69,6 @@ func (a *arangoDB) processInetPrefix(ctx context.Context, key string, e *message
 			}
 		}
 	}
-
 	return nil
 }
 
@@ -95,7 +94,7 @@ func (a *arangoDB) processeBgpPrefix(ctx context.Context, key string, e *message
 		return a.processUnicastPrefixRemoval(ctx, key)
 
 	} else {
-		query := "for l in ebgp_peer_v4 filter l.asn in 64512..65535" +
+		query := "for l in bgp_node filter l.asn in 64512..65535" +
 			" filter l.asn == " + strconv.Itoa(int(e.OriginAS))
 		query += " return l	"
 		pcursor, err := a.db.Query(ctx, query, nil)
@@ -167,6 +166,5 @@ func (a *arangoDB) processUnicastPrefixRemoval(ctx context.Context, key string) 
 		}
 		return nil
 	}
-
 	return nil
 }

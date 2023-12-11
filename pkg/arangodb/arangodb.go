@@ -16,22 +16,21 @@ import (
 type arangoDB struct {
 	dbclient.DB
 	*ArangoConn
-	stop        chan struct{}
-	lslink      driver.Collection
-	lsprefix    driver.Collection
-	graph       driver.Collection
-	lsnodeExt   driver.Collection
-	ebgpPeer    driver.Collection
-	ebgpSession driver.Collection
-	inetPrefix  driver.Collection
-	lstopoV4    driver.Graph
-	ipv4topo    driver.Graph
-	notifier    kafkanotifier.Event
+	stop       chan struct{}
+	lslink     driver.Collection
+	lsprefix   driver.Collection
+	graph      driver.Collection
+	lsnodeExt  driver.Collection
+	bgpNode    driver.Collection
+	inetPrefix driver.Collection
+	lstopoV4   driver.Graph
+	ipv4topo   driver.Graph
+	notifier   kafkanotifier.Event
 }
 
 // NewDBSrvClient returns an instance of a DB server client process
 func NewDBSrvClient(arangoSrv, user, pass, dbname, lslink string, lsprefix string, lsnodeExt string,
-	ebgpPeer string, ebgpSession string, inetPrefix string, lstopoV4 string, ipv4topo string, notifier kafkanotifier.Event) (dbclient.Srv, error) {
+	bgpNode string, inetPrefix string, lstopoV4 string, ipv4topo string, notifier kafkanotifier.Event) (dbclient.Srv, error) {
 	if err := tools.URLAddrValidation(arangoSrv); err != nil {
 		return nil, err
 	}
@@ -72,13 +71,7 @@ func NewDBSrvClient(arangoSrv, user, pass, dbname, lslink string, lsprefix strin
 	}
 
 	// Check if eBGP Peer collection exists, if not fail as Jalapeno topology is not running
-	arango.ebgpPeer, err = arango.db.Collection(context.TODO(), ebgpPeer)
-	if err != nil {
-		return nil, err
-	}
-
-	// Check if eBGP session collection exists, if not fail as Jalapeno topology is not running
-	arango.ebgpSession, err = arango.db.Collection(context.TODO(), ebgpSession)
+	arango.bgpNode, err = arango.db.Collection(context.TODO(), bgpNode)
 	if err != nil {
 		return nil, err
 	}
@@ -112,10 +105,9 @@ func NewDBSrvClient(arangoSrv, user, pass, dbname, lslink string, lsprefix strin
 		// create graph
 		var edgeDefinition driver.EdgeDefinition
 		edgeDefinition.Collection = "ipv4_topology"
-		edgeDefinition.From = []string{"ls_node_extended", "ls_prefix", "ebgp_session_v4", "inet_prefix_v4"}
-		edgeDefinition.To = []string{"ls_node_extended", "ls_prefix", "ebgp_session_v4", "inet_prefix_v4"}
+		edgeDefinition.From = []string{"ls_node_extended", "ls_prefix", "bgp_node", "inet_prefix_v4"}
+		edgeDefinition.To = []string{"ls_node_extended", "ls_prefix", "bgp_node", "inet_prefix_v4"}
 		var options driver.CreateGraphOptions
-		//options.OrphanVertexCollections = []string{"ls_srv6_sid", "ls_prefix"}
 		options.EdgeDefinitions = []driver.EdgeDefinition{edgeDefinition}
 
 		arango.ipv4topo, err = arango.db.CreateGraph(context.TODO(), ipv4topo, &options)
@@ -211,7 +203,7 @@ func (a *arangoDB) loadEdge() error {
 		}
 	}
 
-	bgp_query := "for l in " + a.ebgpSession.Name() + " return l"
+	bgp_query := "for l in peer return l"
 	cursor, err = a.db.Query(ctx, bgp_query, nil)
 	if err != nil {
 		return err
@@ -274,7 +266,7 @@ func (a *arangoDB) loadEdge() error {
 		}
 	}
 
-	peer2peer_query := "for l in " + a.ebgpSession.Name() + " return l"
+	peer2peer_query := "for l in peer return l"
 	cursor, err = a.db.Query(ctx, peer2peer_query, nil)
 	if err != nil {
 		return err

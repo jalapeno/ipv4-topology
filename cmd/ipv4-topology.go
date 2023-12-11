@@ -28,16 +28,16 @@ const (
 )
 
 var (
-	msgSrvAddr             string
-	dbSrvAddr              string
-	dbName                 string
-	dbUser                 string
-	dbPass                 string
-	lslinkCollection       string
-	lsprefixCollection     string
-	lsnodeExtCollection    string
-	ebgpPeerCollection     string
-	ebgpSessionCollection  string
+	msgSrvAddr          string
+	dbSrvAddr           string
+	dbName              string
+	dbUser              string
+	dbPass              string
+	lslinkCollection    string
+	lsprefixCollection  string
+	lsnodeExtCollection string
+	bgpNodeCollection   string
+	// ebgpSessionCollection  string
 	inetPrefixV4Collection string
 	lsTopologyV4Collection string
 	ipv4TopologyCollection string
@@ -60,8 +60,7 @@ func init() {
 	flag.StringVar(&lslinkCollection, "edge-name", "ls_link", "Edge Collection name, default \"ls_link\"")
 	flag.StringVar(&lsprefixCollection, "prefix-name", "ls_prefix", "Prefix Collection name, default \"ls_prefix\"")
 	flag.StringVar(&lsnodeExtCollection, "lsnodeExtended-name", "ls_node_extended", "ls_node_extended Collection name, default: \"ls_node_extended\"")
-	flag.StringVar(&ebgpPeerCollection, "ebgp-name", "ebgp_peer_v4", "eBGP Peer Collection name, default \"ebgp_peer_v4\"")
-	flag.StringVar(&ebgpSessionCollection, "ebgp-session-name", "ebgp_session_v4", "eBGP session Collection name, default \"ebgp_session_v4\"")
+	flag.StringVar(&bgpNodeCollection, "bgp-name", "bgp_node", "bgp_node Collection name, default \"bgp_node\"")
 	flag.StringVar(&inetPrefixV4Collection, "inetv4-prefix-name", "inet_prefix_v4", "inet prefix v4 Collection name, default \"inet_prefix_v4\"")
 	flag.StringVar(&lsTopologyV4Collection, "ls-topology", "ls_topology_v4", "Edge Collection name, default \"ls_topology_v4\"")
 	flag.StringVar(&ipv4TopologyCollection, "ipv4-topology", "ipv4_topology", "Edge Collection name, default \"ipv4_topology\"")
@@ -108,8 +107,8 @@ func main() {
 	}
 
 	dbSrv, err := arangodb.NewDBSrvClient(dbSrvAddr, dbUser, dbPass, dbName, lslinkCollection,
-		lsprefixCollection, lsnodeExtCollection, ebgpPeerCollection,
-		ebgpSessionCollection, inetPrefixV4Collection, lsTopologyV4Collection, ipv4TopologyCollection, notifier)
+		lsprefixCollection, lsnodeExtCollection, bgpNodeCollection,
+		inetPrefixV4Collection, lsTopologyV4Collection, ipv4TopologyCollection, notifier)
 	if err != nil {
 		glog.Errorf("failed to initialize database client with error: %+v", err)
 		os.Exit(1)

@@ -9,15 +9,13 @@ import (
 )
 
 func (a *arangoDB) processPeerSession(ctx context.Context, key string, p *message.PeerStateChange) error {
-
-	glog.Infof("process ebgp session: %s", p.Key)
+	//glog.Infof("process bgp session: %s", p.Key)
 	// get local node from ls_link entry
 	ln, err := a.getPeer(ctx, p, true)
 	if err != nil {
 		glog.Errorf("processEdge failed to get local peer %s for link: %s with error: %+v", p.LocalBGPID, p.ID, err)
 		return err
 	}
-
 	// get remote node from ebgp peer entry
 	rn, err := a.getPeer(ctx, p, false)
 	if err != nil {
@@ -29,13 +27,12 @@ func (a *arangoDB) processPeerSession(ctx context.Context, key string, p *messag
 		return err
 	}
 	//glog.V(9).Infof("processEdge completed processing lslink: %s for ls nodes: %s - %s", l.ID, ln.ID, rn.ID)
-
 	return nil
 }
 
-func (a *arangoDB) getPeer(ctx context.Context, e *message.PeerStateChange, local bool) (ebgpPeer, error) {
+func (a *arangoDB) getPeer(ctx context.Context, e *message.PeerStateChange, local bool) (bgpNode, error) {
 	// Need to find ls_node object matching ls_link's IGP Router ID
-	query := "FOR d IN " + a.ebgpPeer.Name()
+	query := "FOR d IN " + a.bgpNode.Name()
 	if local {
 		//glog.Infof("get local node per session: %s, %s", e.LocalBGPID, e.ID)
 		query += " filter d.bgp_router_id == " + "\"" + e.LocalBGPID + "\""
@@ -50,7 +47,7 @@ func (a *arangoDB) getPeer(ctx context.Context, e *message.PeerStateChange, loca
 		glog.Errorf("failed to process key: %s with error: %+v", e.Key, err)
 	}
 	defer lcursor.Close()
-	var ln ebgpPeer
+	var ln bgpNode
 	i := 0
 	for ; ; i++ {
 		_, err := lcursor.ReadDocument(ctx, &ln)
@@ -67,11 +64,10 @@ func (a *arangoDB) getPeer(ctx context.Context, e *message.PeerStateChange, loca
 	if i > 1 {
 		glog.Errorf("query %s returned more than 1 result", query)
 	}
-
 	return ln, nil
 }
 
-func (a *arangoDB) createPeerEdge(ctx context.Context, l *message.PeerStateChange, ln, rn ebgpPeer) error {
+func (a *arangoDB) createPeerEdge(ctx context.Context, l *message.PeerStateChange, ln, rn bgpNode) error {
 
 	pf := peerFromObject{
 		Key:       l.Key,
@@ -115,7 +111,6 @@ func (a *arangoDB) processEgressPeer(ctx context.Context, key string, p *message
 		return err
 	}
 	//glog.V(9).Infof("processEdge completed processing lslink: %s for ls nodes: %s - %s", l.ID, ln.ID, rn.ID)
-
 	return nil
 }
 
@@ -153,13 +148,12 @@ func (a *arangoDB) getLocalnode(ctx context.Context, e *message.PeerStateChange,
 	if i > 1 {
 		glog.Errorf("query %s returned more than 1 result", query)
 	}
-
 	return ln, nil
 }
 
-func (a *arangoDB) getExtPeer(ctx context.Context, e *message.PeerStateChange, local bool) (ebgpPeer, error) {
+func (a *arangoDB) getExtPeer(ctx context.Context, e *message.PeerStateChange, local bool) (bgpNode, error) {
 	// Need to find ls_node object matching ls_link's IGP Router ID
-	query := "FOR d IN " + a.ebgpPeer.Name()
+	query := "FOR d IN " + a.bgpNode.Name()
 	if local {
 		glog.Infof("get local node per session: %s, %s", e.LocalBGPID, e.ID)
 		query += " filter d.bgp_router_id == " + "\"" + e.LocalBGPID + "\""
@@ -174,7 +168,7 @@ func (a *arangoDB) getExtPeer(ctx context.Context, e *message.PeerStateChange, l
 		glog.Errorf("failed to process key: %s with error: %+v", e.Key, err)
 	}
 	defer lcursor.Close()
-	var ln ebgpPeer
+	var ln bgpNode
 	i := 0
 	for ; ; i++ {
 		_, err := lcursor.ReadDocument(ctx, &ln)
@@ -191,11 +185,10 @@ func (a *arangoDB) getExtPeer(ctx context.Context, e *message.PeerStateChange, l
 	if i > 1 {
 		glog.Errorf("query %s returned more than 1 result", query)
 	}
-
 	return ln, nil
 }
 
-func (a *arangoDB) createPRedge(ctx context.Context, p *message.PeerStateChange, ln LSNodeExt, rn ebgpPeer) error {
+func (a *arangoDB) createPRedge(ctx context.Context, p *message.PeerStateChange, ln LSNodeExt, rn bgpNode) error {
 
 	pf := peerToObject{
 		Key:       ln.Key + "_" + p.Key,

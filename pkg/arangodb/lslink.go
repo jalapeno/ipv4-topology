@@ -21,7 +21,6 @@ func (a *arangoDB) processLSLinkEdge(ctx context.Context, key string, l *message
 	}
 	if l.ProtocolID == 7 {
 		return a.processEPE(ctx, key, l)
-
 	}
 	glog.Infof("processEdge processing lslink: %s", l.ID)
 	// get local node from ls_link entry
@@ -46,7 +45,6 @@ func (a *arangoDB) processLSLinkEdge(ctx context.Context, key string, l *message
 		return err
 	}
 	//glog.V(9).Infof("processEdge completed processing lslink: %s for ls nodes: %s - %s", l.ID, ln.ID, rn.ID)
-
 	return nil
 }
 
@@ -59,7 +57,6 @@ func (a *arangoDB) processLinkRemoval(ctx context.Context, key string, action st
 		}
 		return nil
 	}
-
 	return nil
 }
 
@@ -103,7 +100,6 @@ func (a *arangoDB) getNode(ctx context.Context, e *message.LSLink, local bool) (
 	if i > 1 {
 		return nil, fmt.Errorf("query %s returned more than 1 result", query)
 	}
-
 	return &ln, nil
 }
 
@@ -149,6 +145,5 @@ func (a *arangoDB) createEdgeObject(ctx context.Context, l *message.LSLink, ln, 
 			return err
 		}
 	}
-
 	return nil
 }
