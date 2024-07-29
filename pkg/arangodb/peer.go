@@ -190,41 +190,45 @@ func (a *arangoDB) getExtPeer(ctx context.Context, e *message.PeerStateChange, l
 
 func (a *arangoDB) createPRedge(ctx context.Context, p *message.PeerStateChange, ln LSNodeExt, rn bgpNode) error {
 
-	pf := peerToObject{
-		Key:       ln.Key + "_" + p.Key,
-		From:      ln.ID,
-		To:        rn.ID,
-		LocalIP:   p.LocalIP,
-		RemoteIP:  p.RemoteIP,
-		LocalASN:  p.LocalASN,
-		RemoteASN: p.RemoteASN,
-	}
-	if _, err := a.graph.CreateDocument(ctx, &pf); err != nil {
-		if !driver.IsConflict(err) {
-			return err
+	if p.LocalASN == p.RemoteASN {
+		glog.Infof("peer message is iBGP, no further processing")
+	} else {
+		pf := peerToObject{
+			Key:       ln.Key + "_" + p.Key,
+			From:      ln.ID,
+			To:        rn.ID,
+			LocalIP:   p.LocalIP,
+			RemoteIP:  p.RemoteIP,
+			LocalASN:  p.LocalASN,
+			RemoteASN: p.RemoteASN,
 		}
-		// The document already exists, updating it with the latest info
-		if _, err := a.graph.UpdateDocument(ctx, pf.Key, &pf); err != nil {
-			return err
+		if _, err := a.graph.CreateDocument(ctx, &pf); err != nil {
+			if !driver.IsConflict(err) {
+				return err
+			}
+			// The document already exists, updating it with the latest info
+			if _, err := a.graph.UpdateDocument(ctx, pf.Key, &pf); err != nil {
+				return err
+			}
 		}
-	}
-	pt := peerFromObject{
-		Key:       rn.Key + "_" + p.Key,
-		From:      rn.ID,
-		To:        ln.ID,
-		Session:   p.Key,
-		LocalIP:   p.LocalIP,
-		RemoteIP:  p.RemoteIP,
-		LocalASN:  p.LocalASN,
-		RemoteASN: p.RemoteASN,
-	}
-	if _, err := a.graph.CreateDocument(ctx, &pt); err != nil {
-		if !driver.IsConflict(err) {
-			return err
+		pt := peerFromObject{
+			Key:       rn.Key + "_" + p.Key,
+			From:      rn.ID,
+			To:        ln.ID,
+			Session:   p.Key,
+			LocalIP:   p.LocalIP,
+			RemoteIP:  p.RemoteIP,
+			LocalASN:  p.LocalASN,
+			RemoteASN: p.RemoteASN,
 		}
-		// The document already exists, updating it with the latest info
-		if _, err := a.graph.UpdateDocument(ctx, pt.Key, &pt); err != nil {
-			return err
+		if _, err := a.graph.CreateDocument(ctx, &pt); err != nil {
+			if !driver.IsConflict(err) {
+				return err
+			}
+			// The document already exists, updating it with the latest info
+			if _, err := a.graph.UpdateDocument(ctx, pt.Key, &pt); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
