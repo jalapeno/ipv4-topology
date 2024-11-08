@@ -89,8 +89,23 @@ func NewDBSrvClient(arangoSrv, user, pass, dbname, lslink string, lsprefix strin
 		return nil, err
 	}
 
-	// check for ipv4 topology graph
+	// remove existing ipv4 topology graph
 	found, err := arango.db.GraphExists(context.TODO(), ipv4topo)
+	if err != nil {
+		return nil, err
+	}
+	if found {
+		g, err := arango.db.Graph(context.TODO(), ipv4topo)
+		if err != nil {
+			return nil, err
+		}
+		if err := g.Remove(context.TODO()); err != nil {
+			return nil, err
+		}
+		glog.Infof("removed existing graph %s", ipv4topo)
+	}
+	// check for ipv4 topology graph
+	found, err = arango.db.GraphExists(context.TODO(), ipv4topo)
 	if err != nil {
 		return nil, err
 	}
